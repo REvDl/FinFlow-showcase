@@ -24,13 +24,14 @@ The production environment is built with fault-tolerance, isolation, and industr
 
 ## Awards & Recognition
 
-FinFlow secured **1st Place** at a regional college web development and programming competition (May 2026) and has received official accreditation from the **Ministry of Education and Science of Ukraine**. The project was highly evaluated by the expert jury for its complex asynchronous backend architecture, Redis caching integration, and fault-tolerant external API parsing. 
+FinFlow secured **1st Place** at a regional college web development and programming competition (May 2026) and has received official accreditation from the **Ministry of Education and Science of Ukraine**. The project was highly evaluated by the expert jury for its complex asynchronous backend architecture, Redis caching integration, and fault-tolerant external API parsing.
 
 *Note: To maintain the developer's privacy and anonymity in the open-source community, real names (FIO) are not published publicly. For official verification, accreditation details, or further inquiries regarding the competition, please contact the repository owner via Direct Messages.*
 
 ## Key Features
 
 - **Secure Authentication**: JWT-based system with Access & Refresh token rotation, Argon2 password hashing, and built-in rate limiting (SlowAPI).
+- **Two-Step Email Verification**: Registration requires email confirmation via a 6-digit one-time code (valid for 10 minutes), delivered through the Resend API. Disposable and temporary email addresses are blocked at the schema level.
 - **Real-time Multi-currency**: Automatic exchange rate synchronization (via NBU API) with Redis caching. View your balance in **USD, EUR, UAH, PLN (Zloty), RUB, or CZK**.
 - **Financial Analytics**:
     - Summary dashboards for Balance, Income, and Expenses.
@@ -79,6 +80,15 @@ The backend features a strict, time-zone-aware logging system capturing everythi
 ![](https://img.shields.io/badge/Tailwind-Styling-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
 ![](https://img.shields.io/badge/TanStack_Query-State-FF4154?style=flat-square&logo=react-query&logoColor=white)
 
+## Authentication Flow
+
+Registration is a two-step process designed to ensure account validity:
+
+1. **Step 1 — Sign Up**: The user submits a username, email, and password. The backend validates the input (password: 12–64 characters, no disposable email domains) and sends a 6-digit verification code to the provided email via Resend.
+2. **Step 2 — Email Verification**: The user enters the code received in the email. Upon successful verification, the account is created and the user is automatically signed in via HttpOnly cookie-based tokens.
+
+Password reset is also fully supported — a time-limited reset link (valid 10 minutes) is sent to the user's email and processed on a dedicated `/reset-password` page.
+
 ## Project Structure
 
 ```text
@@ -89,7 +99,7 @@ The backend features a strict, time-zone-aware logging system capturing everythi
 ├── limiter/                    # Rate limiting configuration
 ├── migrations/                 # Database migration history (Alembic)
 ├── schemes/                    # Pydantic models for data validation
-├── services/                       # Data access and business logic
+├── services/                   # Data access and business logic
 ├── telegram/                   # Admin panel & Logs (Telegram Bot integration)
 ├── tests/                      # Integration and Mock test suites
 ├── .dockerignore               # Docker ignore rules
@@ -109,13 +119,15 @@ The backend features a strict, time-zone-aware logging system capturing everythi
 
 ## Testing
 
-The system is covered by a comprehensive test suite to ensure reliability and security. 
+The system is covered by a comprehensive test suite to ensure reliability and security.
 ```bash
 pytest
 ```
+
 ## Security & Performance
 
 * **Brute-force protection**: Strict rate limiting implemented on sensitive endpoints.
+* **Email Verification**: All new accounts require confirmation via a one-time 6-digit code. Disposable email domains are blocked via `disposable-email-domains`.
 * **Data Integrity**: Powered by **Pydantic v2**, ensuring strict validation at the schema level.
 * **Asynchronous Architecture**: Fully non-blocking I/O operations for high concurrency.
 * **Secure Data Storage**: Professional standards using HttpOnly, Secure, and SameSite cookie attributes.
