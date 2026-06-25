@@ -48,7 +48,11 @@ FinFlow secured **1st Place** at a regional college web development and programm
 
 ### Main Dashboard
 A comprehensive overview of your current balance, incomes, and expenses, automatically converted into your preferred currency using live NBU rates.
-![Main Dashboard](assets/main_board_log_with_money.jpg)
+![Main Dashboard](assets/new_main_board.jpg)
+
+### Profile
+Profile where you can change your account information.
+![Profile](assets/profile.jpg)
 
 ### Analytics & Visualizations
 Dynamic charts and diagrams breaking down expense categories and balance dynamics over time.
