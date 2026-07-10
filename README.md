@@ -128,6 +128,23 @@ The system is covered by a comprehensive test suite to ensure reliability and se
 pytest
 ```
 
+## CI/CD Pipeline
+
+FinFlow uses **GitHub Actions** to automate testing and deployment on every push to the `main` branch (or via manual trigger through `workflow_dispatch`). The pipeline consists of two sequential jobs:
+
+1. **`test`** — spins up a clean environment on `ubuntu-latest`:
+   - Checks out the repository.
+   - Reconstructs the `.env` file from a GitHub Secret (`ENV_FILE`), keeping sensitive configuration out of the codebase.
+   - Starts an isolated test database via `docker-compose.test.yml`.
+   - Sets up Python 3.12 and installs backend dependencies.
+   - Runs the full `pytest` suite. Deployment is blocked if any test fails.
+
+2. **`deploy`** — runs only after `test` succeeds (`needs: test`):
+   - Connects to the production VPS over SSH (`appleboy/ssh-action`), using host, username, and private key stored as encrypted GitHub Secrets (`VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`).
+   - Pulls the latest changes on the server (`git pull`).
+   - Rebuilds and restarts backend containers via `docker compose up -d --build`.
+   - Rebuilds the frontend production bundle (`pnpm run build`) inside the `frontend/` directory.
+
 ## Security & Performance
 
 * **Brute-force protection**: Strict rate limiting implemented on sensitive endpoints.
