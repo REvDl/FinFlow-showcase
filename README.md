@@ -1,6 +1,6 @@
 # FinFlow — Full-Stack Personal Finance Manager
 
-FinFlow is a robust, high-performance personal finance management system designed for modern personal accounting. It allows users to track incomes and expenses, manage flexible categories, and analyze financial health with real-time multi-currency conversion and smart data processing.
+FinFlow is a robust, high-performance personal finance management system designed for modern personal accounting. It allows users to track incomes and expenses, manage flexible categories and accounts, and analyze financial health with real-time multi-currency conversion and smart data processing.
 
 > **Production Status**: The project has successfully passed the staging phase and is fully deployed in a secure production environment. Active support, monitoring, and regular architectural improvements are performed 24/7.
 
@@ -33,6 +33,11 @@ FinFlow secured **1st Place** at a regional college web development and programm
 - **Secure Authentication**: JWT-based system with Access & Refresh token rotation, Argon2 password hashing, and built-in rate limiting (SlowAPI).
 - **Two-Step Email Verification**: Registration requires email confirmation via a 6-digit one-time code (valid for 10 minutes), delivered through the Resend API. Disposable and temporary email addresses are blocked at the schema level.
 - **Real-time Multi-currency**: Automatic exchange rate synchronization (via NBU API) with Redis caching. View your balance in **USD, EUR, UAH, PLN (Zloty), RUB, or CZK**.
+- **Accounts Management**: Flexible multi-account system to organize finances by wallet, card, cash, or savings.
+    - Two default accounts are automatically created for every new user upon registration.
+    - Free-tier users are limited to 2 accounts: one can be deleted (with data reassigned/removed accordingly), while the other is protected — the app enforces at least one active account at all times.
+    - Accounts can be renamed at any time.
+    - A custom icon is selected once, at account creation time; icon changes after creation are not yet supported (planned for a future release).
 - **Financial Analytics**:
     - Summary dashboards for Balance, Income, and Expenses.
     - Average daily spending and income calculation for specific periods.
@@ -54,12 +59,21 @@ A comprehensive overview of your current balance, incomes, and expenses, automat
 Profile where you can change your account information.
 ![Profile](assets/profile.jpg)
 
+### Accounts
+Manage your accounts (cards, cash, savings, etc.) from a dedicated section. Every user starts with 2 default accounts; free-tier users can rename an account or delete one (a single active account is always required and cannot be removed). A custom icon is chosen when creating a new account.
+
+![Accounts](assets/accounts.png)
+
+Available account icons to choose from during creation:
+
+![Account Icons](assets/account_icons.png)
+
 ### Analytics & Visualizations
 Dynamic charts and diagrams breaking down expense categories and balance dynamics over time.
 ![Analytics Diagrams](assets/all_diagram.jpg)
 
 ### Transaction Management
-Intuitive modals for quick entry creation with category and currency selection.
+Intuitive modals for quick entry creation with category, account, and currency selection.
 ![Create Transaction](assets/create_transaction.jpg)
 
 ### Transparent Backend Logging
@@ -89,7 +103,7 @@ The backend features a strict, time-zone-aware logging system capturing everythi
 Registration is a two-step process designed to ensure account validity:
 
 1. **Step 1 — Sign Up**: The user submits a username, email, and password. The backend validates the input (password: 12–64 characters, no disposable email domains) and sends a 6-digit verification code to the provided email via Resend.
-2. **Step 2 — Email Verification**: The user enters the code received in the email. Upon successful verification, the account is created and the user is automatically signed in via HttpOnly cookie-based tokens.
+2. **Step 2 — Email Verification**: The user enters the code received in the email. Upon successful verification, the account is created (along with 2 default financial accounts) and the user is automatically signed in via HttpOnly cookie-based tokens.
 
 Password reset is also fully supported — a time-limited reset link (valid 10 minutes) is sent to the user's email and processed on a dedicated `/reset-password` page.
 
