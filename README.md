@@ -21,7 +21,7 @@ The production environment is built with fault-tolerance, isolation, and industr
 * **Containerization & Isolation**: The entire backend ecosystem (FastAPI ASGI application, PostgreSQL database, and Redis cache) is containerized via `Docker Compose`. Container ports are strictly isolated within an internal virtual bridge network, leaving no exposed database ports to the host network.
 * **SSL/TLS Encryption**: Automated cryptographic certificates provided by `Let's Encrypt` (`Certbot`) with enforced global HTTP-to-HTTPS redirection.
 * **Server Hardening & Security**: Host-level access is restricted strictly to authorized SSH keys with password authentication completely disabled. The server utilizes automated brute-force protection, strict network-level firewalls, and active log parsing to mitigate remote access risks.
-
+* **Monitoring & Observability**: The stack is continuously monitored via `Prometheus`, which scrapes metrics directly from the FastAPI backend and from the host system via `node-exporter`. Collected time-series data is visualized in `Grafana` dashboards, providing real-time insight into API performance, request throughput, and host resource consumption (CPU, memory, disk, network).
 ## Awards & Recognition
 
 FinFlow secured **1st Place** at a regional college web development and programming competition (May 2026) and has received official accreditation from the **Ministry of Education and Science of Ukraine**. The project was highly evaluated by the expert jury for its complex asynchronous backend architecture, Redis caching integration, and fault-tolerant external API parsing.
@@ -98,6 +98,10 @@ The backend features a strict, time-zone-aware logging system capturing everythi
 ![](https://img.shields.io/badge/Tailwind-Styling-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
 ![](https://img.shields.io/badge/TanStack_Query-State-FF4154?style=flat-square&logo=react-query&logoColor=white)
 
+### Monitoring
+![](https://img.shields.io/badge/Prometheus-Monitoring-E6522C?style=flat-square&logo=prometheus&logoColor=white)
+![](https://img.shields.io/badge/Grafana-Dashboards-F46800?style=flat-square&logo=grafana&logoColor=white)
+
 ## Authentication Flow
 
 Registration is a two-step process designed to ensure account validity:
@@ -110,12 +114,16 @@ Password reset is also fully supported — a time-limited reset link (valid 10 m
 ## Project Structure
 
 ```text
+├── .github/                    # GitHub Actions workflows (CI/CD pipeline)
 ├── app/                        # FastAPI Application (Endpoints & Main)
+├── assets/                     # Documentation images and screenshots
 ├── core/                       # Security, JWT, Dependencies, and Exceptions
 ├── database/                   # SQLAlchemy Models and Engine setup
 ├── frontend/                   # React/TypeScript source code
+├── grafana/                    # Grafana provisioning (dashboards, datasources)
 ├── limiter/                    # Rate limiting configuration
 ├── migrations/                 # Database migration history (Alembic)
+├── prometheus/                 # Prometheus configuration (scrape configs, alert rules)
 ├── schemes/                    # Pydantic models for data validation
 ├── services/                   # Data access and business logic
 ├── telegram/                   # Admin panel & Logs (Telegram Bot integration)
@@ -129,6 +137,7 @@ Password reset is also fully supported — a time-limited reset link (valid 10 m
 ├── docker-compose.test.yml     # Orchestration for testing environment
 ├── docker-compose.yml          # Production/Dev orchestration config
 ├── Dockerfile                  # Docker image build instructions
+├── logger.py                   # Centralized logging configuration
 ├── pytest.ini                  # Pytest configuration
 ├── README.md                   # Project documentation
 ├── requirements.txt            # Backend dependencies
