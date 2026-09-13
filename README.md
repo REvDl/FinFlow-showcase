@@ -22,6 +22,7 @@ The production environment is built with fault-tolerance, isolation, and industr
 * **SSL/TLS Encryption**: Automated cryptographic certificates provided by `Let's Encrypt` (`Certbot`) with enforced global HTTP-to-HTTPS redirection.
 * **Server Hardening & Security**: Host-level access is restricted strictly to authorized SSH keys with password authentication completely disabled. The server utilizes automated brute-force protection, strict network-level firewalls, and active log parsing to mitigate remote access risks.
 * **Monitoring & Observability**: The stack is continuously monitored via `Prometheus`, which scrapes metrics directly from the FastAPI backend and from the host system via `node-exporter`. Collected time-series data is visualized in `Grafana` dashboards, providing real-time insight into API performance, request throughput, and host resource consumption (CPU, memory, disk, network).
+* **Currency Rate Resilience**: A tiered fallback strategy for exchange-rate sourcing — live Redis cache → active provider (NBU/CNB) → last-known-good persistent cache → static defaults — ensuring the conversion pipeline degrades gracefully rather than failing outright.
 ## Awards & Recognition
 
 FinFlow secured **1st Place** in the Web Development category at the IT Student Projects Competition (May 2026), organized for Kyiv professional pre-higher education institutions under the auspices of the Ministry of Education and Science of Ukraine (Official Decree No. 23/2026).
@@ -31,7 +32,7 @@ FinFlow secured **1st Place** in the Web Development category at the IT Student 
 
 - **Secure Authentication**: JWT-based system with Access & Refresh token rotation, Argon2 password hashing, and built-in rate limiting (SlowAPI).
 - **Two-Step Email Verification**: Registration requires email confirmation via a 6-digit one-time code (valid for 10 minutes), delivered through the Resend API. Disposable and temporary email addresses are blocked at the schema level.
-- **Real-time Multi-currency**: Automatic exchange rate synchronization (via NBU API) with Redis caching. View your balance in **USD, EUR, UAH, PLN (Zloty), RUB, or CZK**.
+- **Real-time Multi-currency**: Automatic exchange rate synchronization with Redis caching and a multi-tier resilience system. Primary source is the National Bank of Ukraine (NBU); if unavailable, the system automatically falls back to the Czech National Bank (CNB) via cross-rate calculation, with a persistent last-known-good cache as a final safety net. The active source can be switched on demand via Telegram commands. View your balance in **USD, EUR, UAH, PLN (Zloty), or CZK**.
 - **Accounts Management**: Flexible multi-account system to organize finances by wallet, card, cash, or savings.
     - Two default accounts are automatically created for every new user upon registration.
     - Free-tier users are limited to 2 accounts: one can be deleted (with data reassigned/removed accordingly), while the other is protected — the app enforces at least one active account at all times.
@@ -47,7 +48,7 @@ FinFlow secured **1st Place** in the Web Development category at the IT Student 
     - **Smart Date Parsing**: Intelligent input processor (English/Russian support).
 - **Data Portability**: Full support for Importing and Exporting financial history via JSON files (with strict backend payload size validation).
 - **Modern UI/UX**: Clean, responsive dashboard with native Dark Mode support.
-
+- **Telegram Admin Control**: Real-time notifications for critical events (auth activity, errors, currency updates) plus a lightweight command interface — authorized admin can switch the active exchange-rate source at runtime without a redeploy.
 ## UI & Application Flow
 
 ### Main Dashboard
@@ -116,6 +117,7 @@ Password reset is also fully supported — a time-limited reset link (valid 10 m
 ├── .github/                    # GitHub Actions workflows (CI/CD pipeline)
 ├── app/                        # FastAPI Application (Endpoints & Main)
 ├── assets/                     # Documentation images and screenshots
+├── banks/                      # Exchange-rate providers (NBU, CNB) with shared caching, active-source switching, and persistent fallback logic
 ├── core/                       # Security, JWT, Dependencies, and Exceptions
 ├── database/                   # SQLAlchemy Models and Engine setup
 ├── frontend/                   # React/TypeScript source code
@@ -125,7 +127,7 @@ Password reset is also fully supported — a time-limited reset link (valid 10 m
 ├── prometheus/                 # Prometheus configuration (scrape configs, alert rules)
 ├── schemes/                    # Pydantic models for data validation
 ├── services/                   # Data access and business logic
-├── telegram/                   # Admin panel & Logs (Telegram Bot integration)
+├── telegram/                   # Telegram integration: async notifications/logs, and a long-polling command handler for runtime admin control (e.g. switching currency source)
 ├── tests/                      # Integration and Mock test suites
 ├── .dockerignore               # Docker ignore rules
 ├── .env                        # Environment variables (Local)
@@ -139,8 +141,7 @@ Password reset is also fully supported — a time-limited reset link (valid 10 m
 ├── logger.py                   # Centralized logging configuration
 ├── pytest.ini                  # Pytest configuration
 ├── README.md                   # Project documentation
-├── requirements.txt            # Backend dependencies
-└── script.py                   # External API integration (Currency parsing)
+└── requirements.txt            # Backend dependencies
 ```
 
 ## Testing
