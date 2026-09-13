@@ -24,10 +24,9 @@ The production environment is built with fault-tolerance, isolation, and industr
 * **Monitoring & Observability**: The stack is continuously monitored via `Prometheus`, which scrapes metrics directly from the FastAPI backend and from the host system via `node-exporter`. Collected time-series data is visualized in `Grafana` dashboards, providing real-time insight into API performance, request throughput, and host resource consumption (CPU, memory, disk, network).
 ## Awards & Recognition
 
-FinFlow secured **1st Place** at a regional college web development and programming competition (May 2026) and has received official accreditation from the **Ministry of Education and Science of Ukraine**. The project was highly evaluated by the expert jury for its complex asynchronous backend architecture, Redis caching integration, and fault-tolerant external API parsing.
+FinFlow secured **1st Place** in the Web Development category at the IT Student Projects Competition (May 2026), organized for Kyiv professional pre-higher education institutions under the auspices of the Ministry of Education and Science of Ukraine (Official Decree No. 23/2026).
 
-*Note: To maintain the developer's privacy and anonymity in the open-source community, real names (FIO) are not published publicly. For official verification, accreditation details, or further inquiries regarding the competition, please contact the repository owner via Direct Messages.*
-
+*Note: All architecture, backend, frontend, and DevOps work was executed solely by me. Real names are omitted in this repository for privacy reasons; feel free to reach out via DMs for official verification.*
 ## Key Features
 
 - **Secure Authentication**: JWT-based system with Access & Refresh token rotation, Argon2 password hashing, and built-in rate limiting (SlowAPI).
