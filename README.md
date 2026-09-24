@@ -1,89 +1,111 @@
-# FinFlow — Full-Stack Personal Finance Manager
+# FinFlow — Personal Finance Manager
 
-FinFlow is a robust, high-performance personal finance management system designed for modern personal accounting. It allows users to track incomes and expenses, manage flexible categories and accounts, and analyze financial health with real-time multi-currency conversion and smart data processing.
-
-> **Production Status**: The project has successfully passed the staging phase and is fully deployed in a secure production environment. Active support, monitoring, and regular architectural improvements are performed 24/7.
+Full-stack personal finance tracker: incomes/expenses, flexible accounts and categories, real-time multi-currency conversion with a tiered fallback strategy.
 
 ---
 
-## Live Production
+## Live
 
-The application is fully operational and accessible globally via secure HTTPS protocol:
 **[https://finflow.website](https://finflow.website)**
 
+In production since staging completed in 2026. Health and activity are monitored continuously through a Telegram bot integration: the backend pushes event-driven alerts on errors, auth activity, and currency-source switches — not a periodic ping, but a message the moment something happens. An authorized admin can also switch the active exchange-rate source at runtime via Telegram commands, without a redeploy.
+
 ---
 
-## Deployment & DevOps Architecture
+## Recognition
 
-The production environment is built with fault-tolerance, isolation, and industry-standard security practices in mind:
+**1st place, Web Development category** — IT Student Projects Competition, Kyiv, May 2026 (Ministry of Education and Science of Ukraine, Decree No. 23/2026).
 
-* **Web Server & Reverse Proxy**: `Nginx` handles high-performance static file serving for the React frontend (`/dist` package compiled via `pnpm`) and acts as a reverse proxy for the backend, managing transparent route rewrites (stripping `/api/` prefixes) and custom header injection (`X-Real-IP`, `X-Forwarded-For`).
-* **Containerization & Isolation**: The entire backend ecosystem (FastAPI ASGI application, PostgreSQL database, and Redis cache) is containerized via `Docker Compose`. Container ports are strictly isolated within an internal virtual bridge network, leaving no exposed database ports to the host network.
-* **SSL/TLS Encryption**: Automated cryptographic certificates provided by `Let's Encrypt` (`Certbot`) with enforced global HTTP-to-HTTPS redirection.
-* **Server Hardening & Security**: Host-level access is restricted strictly to authorized SSH keys with password authentication completely disabled. The server utilizes automated brute-force protection, strict network-level firewalls, and active log parsing to mitigate remote access risks.
-* **Monitoring & Observability**: The stack is continuously monitored via `Prometheus`, which scrapes metrics directly from the FastAPI backend and from the host system via `node-exporter`. Collected time-series data is visualized in `Grafana` dashboards, providing real-time insight into API performance, request throughput, and host resource consumption (CPU, memory, disk, network).
-* **Currency Rate Resilience**: A tiered fallback strategy for exchange-rate sourcing — live Redis cache → active provider (NBU/CNB) → last-known-good persistent cache → static defaults — ensuring the conversion pipeline degrades gracefully rather than failing outright.
-## Awards & Recognition
+---
 
-FinFlow secured **1st Place** in the Web Development category at the IT Student Projects Competition (May 2026), organized for Kyiv professional pre-higher education institutions under the auspices of the Ministry of Education and Science of Ukraine (Official Decree No. 23/2026).
+## Architecture
 
-*Note: All architecture, backend, frontend, and DevOps work was executed solely by me. Real names are omitted in this repository for privacy reasons; feel free to reach out via DMs for official verification.*
+```mermaid
+graph TB
+    User[Browser] -->|HTTPS| Nginx
+    Nginx -->|static files| React[React frontend /dist]
+    Nginx -->|/api/*| FastAPI[FastAPI backend]
+    FastAPI --> PG[(PostgreSQL)]
+    FastAPI --> Redis[(Redis cache)]
+    FastAPI --> Rates[NBU / CNB<br/>exchange rate providers]
+    FastAPI --> Resend[Resend<br/>email verification]
+    FastAPI <-->|admin commands,<br/>alerts| TGBot[Telegram Bot]
+    Prometheus -->|scrape| FastAPI
+    Prometheus -->|scrape| NodeExp[node-exporter]
+    Grafana --> Prometheus
+```
+
+Backend, database, and cache run as isolated services in Docker Compose, with no database ports exposed to the host network. Nginx terminates TLS and reverse-proxies to the backend, stripping the `/api/` prefix and injecting `X-Real-IP` / `X-Forwarded-For`.
+
+---
+
+## Deployment & Infrastructure
+
+- **Web server / reverse proxy**: Nginx serves the compiled React frontend (built with `pnpm`) and reverse-proxies API traffic to FastAPI.
+- **Containerization**: Backend, PostgreSQL, and Redis run in Docker Compose on an internal bridge network — no database ports exposed to the host.
+- **TLS**: Certificates via Let's Encrypt (Certbot), with enforced HTTP→HTTPS redirection.
+- **Server hardening**: SSH key-only access (password auth disabled), automated brute-force protection at the host level, active log parsing.
+- **Monitoring**: Prometheus scrapes metrics from the FastAPI backend and from the host via node-exporter; Grafana dashboards visualize API performance, request throughput, and host resource usage (CPU, memory, disk, network).
+- **Currency rate resilience**: tiered fallback — live Redis cache → active provider (NBU/CNB) → last-known-good persistent cache → static defaults — so the conversion pipeline degrades gracefully instead of failing outright.
+
+*Note: all architecture, backend, frontend, and DevOps work was done solely by me. See [Author](#author--contact) below.*
+
+---
+
 ## Key Features
 
-- **Secure Authentication**: JWT-based system with Access & Refresh token rotation, Argon2 password hashing, and built-in rate limiting (SlowAPI).
-- **Two-Step Email Verification**: Registration requires email confirmation via a 6-digit one-time code (valid for 10 minutes), delivered through the Resend API. Disposable and temporary email addresses are blocked at the schema level.
-- **Real-time Multi-currency**: Automatic exchange rate synchronization with Redis caching and a multi-tier resilience system. Primary source is the National Bank of Ukraine (NBU); if unavailable, the system automatically falls back to the Czech National Bank (CNB) via cross-rate calculation, with a persistent last-known-good cache as a final safety net. The active source can be switched on demand via Telegram commands. View your balance in **USD, EUR, UAH, PLN (Zloty), or CZK**.
-- **Accounts Management**: Flexible multi-account system to organize finances by wallet, card, cash, or savings.
-    - Two default accounts are automatically created for every new user upon registration.
-    - Free-tier users are limited to 2 accounts: one can be deleted (with data reassigned/removed accordingly), while the other is protected — the app enforces at least one active account at all times.
-    - Accounts can be renamed at any time.
-    - A custom icon is selected once, at account creation time; icon changes after creation are not yet supported (planned for a future release).
-- **Financial Analytics**:
-    - Summary dashboards for Balance, Income, and Expenses.
-    - Average daily spending and income calculation for specific periods.
-    - Real-time balance conversion based on live market rates.
-- **Advanced Transaction Management**:
-    - **Cursor-based Pagination**: Optimized infinite scrolling for smooth browsing of large transaction histories.
-    - **Dynamic Filtering**: Comprehensive data filtering by date range, category, or type.
-    - **Smart Date Parsing**: Intelligent input processor (English/Russian support).
-- **Data Portability**: Full support for Importing and Exporting financial history via JSON files (with strict backend payload size validation).
-- **Modern UI/UX**: Clean, responsive dashboard with native Dark Mode support.
-- **Telegram Admin Control**: Real-time notifications for critical events (auth activity, errors, currency updates) plus a lightweight command interface — authorized admin can switch the active exchange-rate source at runtime without a redeploy.
+- **Authentication**: JWT-based system with access & refresh token rotation, Argon2 password hashing, rate limiting via SlowAPI.
+- **Two-step email verification**: registration requires a 6-digit code (valid 10 minutes), delivered via the Resend API. Disposable/temporary email domains are blocked at the schema level.
+- **Multi-currency**: automatic exchange rate sync with Redis caching. Primary source is the National Bank of Ukraine (NBU); on failure, falls back to the Czech National Bank (CNB) via cross-rate calculation, with a persistent last-known-good cache as final safety net. Active source switchable on demand via Telegram. View balances in USD, EUR, UAH, PLN, or CZK.
+- **Accounts**: multi-account system (wallet, card, cash, savings).
+  - Two default accounts created automatically on registration.
+  - Free tier: limited to 2 accounts; one can be deleted (data reassigned), the other protected — at least one active account is always enforced.
+  - Accounts can be renamed at any time; icon is set once at creation (icon changes post-creation not yet supported).
+- **Analytics**: balance/income/expense dashboards, average daily spending/income for a given period, real-time conversion based on live rates.
+- **Transactions**: cursor-based pagination for infinite scrolling, filtering by date range/category/type, smart date parsing (English/Russian input).
+- **Data portability**: JSON import/export of financial history, with backend payload size validation.
+- **UI**: responsive dashboard with native dark mode.
+- **Telegram admin control**: real-time notifications for auth activity, errors, and currency updates, plus a command interface for runtime admin actions.
+
+---
+
 ## UI & Application Flow
 
 ### Main Dashboard
-A comprehensive overview of your current balance, incomes, and expenses, automatically converted into your preferred currency using live NBU rates.
+Balance, income, and expenses converted into the user's preferred currency using live NBU rates.
 ![Main Dashboard](assets/new_main_board.jpg)
 
 ### Profile
-Profile where you can change your account information.
 ![Profile](assets/profile.jpg)
 
 ### Accounts
-Manage your accounts (cards, cash, savings, etc.) from a dedicated section. Every user starts with 2 default accounts; free-tier users can rename an account or delete one (a single active account is always required and cannot be removed). A custom icon is chosen when creating a new account.
-
+Every user starts with 2 default accounts; free-tier users can rename or delete one (a single active account is always required).
 ![Accounts](assets/accounts.png)
 
-Available account icons to choose from during creation:
+Available account icons at creation:
+
+
 
 ![Account Icons](assets/account_icons.png)
 
 ### Analytics & Visualizations
-Dynamic charts and diagrams breaking down expense categories and balance dynamics over time.
 ![Analytics Diagrams](assets/all_diagram.jpg)
 
 ### Transaction Management
-Intuitive modals for quick entry creation with category, account, and currency selection.
 ![Create Transaction](assets/create_transaction.jpg)
 
-### Transparent Backend Logging
-The backend features a strict, time-zone-aware logging system capturing everything from JWT rotation and payload validation to asynchronous Redis caching and Telegram Bot notifications.
+### Backend Logging
+Time-zone-aware logging covering JWT rotation, payload validation, async Redis caching, and Telegram bot notifications.
 ![Backend Logs](assets/logs.jpg)
-*Note: All tokens, usernames, endpoints, and credentials shown in the documentation and screenshots are strictly mock data used for demonstration purposes and do not represent real-world active secrets.*
+
+*Note: all tokens, usernames, endpoints, and credentials shown above are mock data for demonstration only.*
+
+---
 
 ## Tech Stack
 
-### Backend
+**Backend**
+
 ![](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![](https://img.shields.io/badge/FastAPI-Framework-009688?style=flat-square&logo=fastapi&logoColor=white)
 ![](https://img.shields.io/badge/PostgreSQL-Database-4169E1?style=flat-square&logo=postgresql&logoColor=white)
@@ -91,90 +113,121 @@ The backend features a strict, time-zone-aware logging system capturing everythi
 ![](https://img.shields.io/badge/SQLAlchemy-ORM-D71F00?style=flat-square&logo=sqlalchemy&logoColor=white)
 ![](https://img.shields.io/badge/Docker-Container-2496ED?style=flat-square&logo=docker&logoColor=white)
 
-### Frontend
+**Frontend**
+
 ![](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)
 ![](https://img.shields.io/badge/TypeScript-Language-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![](https://img.shields.io/badge/Vite-Tooling-646CFF?style=flat-square&logo=vite&logoColor=white)
 ![](https://img.shields.io/badge/Tailwind-Styling-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
 ![](https://img.shields.io/badge/TanStack_Query-State-FF4154?style=flat-square&logo=react-query&logoColor=white)
 
-### Monitoring
+**Monitoring**
+
 ![](https://img.shields.io/badge/Prometheus-Monitoring-E6522C?style=flat-square&logo=prometheus&logoColor=white)
 ![](https://img.shields.io/badge/Grafana-Dashboards-F46800?style=flat-square&logo=grafana&logoColor=white)
 
+---
+
 ## Authentication Flow
 
-Registration is a two-step process designed to ensure account validity:
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant API as FastAPI
+    participant Email as Resend
 
-1. **Step 1 — Sign Up**: The user submits a username, email, and password. The backend validates the input (password: 12–64 characters, no disposable email domains) and sends a 6-digit verification code to the provided email via Resend.
-2. **Step 2 — Email Verification**: The user enters the code received in the email. Upon successful verification, the account is created (along with 2 default financial accounts) and the user is automatically signed in via HttpOnly cookie-based tokens.
+    U->>API: POST /auth/register (username, email, password)
+    API->>API: validate password, check disposable domain
+    API->>Email: send 6-digit code
+    API-->>U: pending verification
+    U->>API: POST /auth/verify-email (code)
+    API->>API: create user + 2 default accounts
+    API-->>U: set HttpOnly access/refresh cookies
+```
 
-Password reset is also fully supported — a time-limited reset link (valid 10 minutes) is sent to the user's email and processed on a dedicated `/reset-password` page.
+1. **Sign up**: user submits username, email, password. Backend validates input (password 12–64 chars, no disposable domains) and sends a 6-digit code via Resend.
+2. **Email verification**: user enters the code. On success, the account is created (with 2 default accounts) and the user is signed in via HttpOnly cookie-based tokens.
+
+Password reset follows the same pattern: a time-limited reset link (valid 10 minutes) sent to the user's email, processed on a dedicated `/reset-password` page.
+
+---
+
+## Testing
+
+```bash
+pytest --cov=app --cov=core --cov=services --cov-report=term-missing
+```
+
+Current backend coverage: **73%** overall, with the highest-risk paths (auth, security, token refresh) covered at 93–100%.
+
+```
+Name                           Stmts   Miss  Cover
+---------------------------------------------------
+core/security.py                  49      1    98%
+services/auth.py                  99      7    93%
+app/endpoints/user.py             26      1    96%
+core/exceptions.py                29      0   100%
+services/refresh.py               22      0   100%
+services/transaction.py          210     87    59%
+---------------------------------------------------
+TOTAL                           1029    274    73%
+```
+
+Coverage is intentionally uneven right now: authentication, security, and token handling — the parts where a bug is most costly — are covered almost completely. Transaction and account business logic are covered less thoroughly and are the current focus for additional tests.
+
+---
+
+## CI/CD
+
+GitHub Actions runs on every push to `main` (or manually via `workflow_dispatch`), in two sequential jobs:
+
+1. **`test`** — spins up a clean `ubuntu-latest` runner: checks out the repo, reconstructs `.env` from a GitHub Secret (`ENV_FILE`), starts an isolated test database via `docker-compose.test.yml`, sets up Python 3.12, installs dependencies, and runs the full `pytest` suite. Deployment is blocked if any test fails.
+2. **`deploy`** (`needs: test`) — connects to the production VPS over SSH (`appleboy/ssh-action`) using secrets (`VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`), pulls the latest changes, rebuilds and restarts backend containers (`docker compose up -d --build`), and rebuilds the frontend bundle (`pnpm run build`).
+
+---
+
+## Security
+
+- Rate limiting on sensitive endpoints (SlowAPI).
+- Mandatory email verification via one-time 6-digit code; disposable email domains blocked (`disposable-email-domains`).
+- Schema-level validation via Pydantic v2.
+- Fully async I/O for concurrency.
+- HttpOnly, Secure, SameSite cookie attributes for token storage.
+
+---
 
 ## Project Structure
 
 ```text
-├── .github/                    # GitHub Actions workflows (CI/CD pipeline)
-├── app/                        # FastAPI Application (Endpoints & Main)
+├── .github/                    # GitHub Actions workflows (CI/CD)
+├── app/                        # FastAPI application (endpoints & main)
 ├── assets/                     # Documentation images and screenshots
-├── banks/                      # Exchange-rate providers (NBU, CNB) with shared caching, active-source switching, and persistent fallback logic
-├── core/                       # Security, JWT, Dependencies, and Exceptions
-├── database/                   # SQLAlchemy Models and Engine setup
-├── frontend/                   # React/TypeScript source code
+├── banks/                      # Exchange-rate providers (NBU, CNB), shared caching, fallback logic
+├── core/                       # Security, JWT, dependencies, exceptions
+├── database/                   # SQLAlchemy models and engine setup
+├── frontend/                   # React/TypeScript source
 ├── grafana/                    # Grafana provisioning (dashboards, datasources)
 ├── limiter/                    # Rate limiting configuration
-├── migrations/                 # Database migration history (Alembic)
-├── prometheus/                 # Prometheus configuration (scrape configs, alert rules)
-├── schemes/                    # Pydantic models for data validation
+├── migrations/                 # Alembic migration history
+├── prometheus/                 # Prometheus scrape configs and alert rules
+├── schemes/                    # Pydantic models for validation
 ├── services/                   # Data access and business logic
-├── telegram/                   # Telegram integration: async notifications/logs, and a long-polling command handler for runtime admin control (e.g. switching currency source)
-├── tests/                      # Integration and Mock test suites
-├── .dockerignore               # Docker ignore rules
-├── .env                        # Environment variables (Local)
-├── .gitattributes              # Git attributes config
-├── .gitignore                  # Git ignore rules
-├── alembic.ini                 # Alembic configuration
-├── config.py                   # Global application configuration
-├── docker-compose.test.yml     # Orchestration for testing environment
-├── docker-compose.yml          # Production/Dev orchestration config
-├── Dockerfile                  # Docker image build instructions
-├── logger.py                   # Centralized logging configuration
-├── pytest.ini                  # Pytest configuration
-├── README.md                   # Project documentation
-└── requirements.txt            # Backend dependencies
+├── telegram/                   # Async notifications/logs + long-polling admin command handler
+├── tests/                      # Integration and unit test suites
+├── docker-compose.yml          # Production orchestration
+├── docker-compose.test.yml     # Test environment orchestration
+├── Dockerfile
+├── alembic.ini
+├── config.py
+├── logger.py
+├── pytest.ini
+└── requirements.txt
 ```
-
-## Testing
-
-The system is covered by a comprehensive test suite to ensure reliability and security.
-```bash
-pytest
-```
-
-## CI/CD Pipeline
-
-FinFlow uses **GitHub Actions** to automate testing and deployment on every push to the `main` branch (or via manual trigger through `workflow_dispatch`). The pipeline consists of two sequential jobs:
-
-1. **`test`** — spins up a clean environment on `ubuntu-latest`:
-   - Checks out the repository.
-   - Reconstructs the `.env` file from a GitHub Secret (`ENV_FILE`), keeping sensitive configuration out of the codebase.
-   - Starts an isolated test database via `docker-compose.test.yml`.
-   - Sets up Python 3.12 and installs backend dependencies.
-   - Runs the full `pytest` suite. Deployment is blocked if any test fails.
-
-2. **`deploy`** — runs only after `test` succeeds (`needs: test`):
-   - Connects to the production VPS over SSH (`appleboy/ssh-action`), using host, username, and private key stored as encrypted GitHub Secrets (`VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`).
-   - Pulls the latest changes on the server (`git pull`).
-   - Rebuilds and restarts backend containers via `docker compose up -d --build`.
-   - Rebuilds the frontend production bundle (`pnpm run build`) inside the `frontend/` directory.
-
-## Security & Performance
-
-* **Brute-force protection**: Strict rate limiting implemented on sensitive endpoints.
-* **Email Verification**: All new accounts require confirmation via a one-time 6-digit code. Disposable email domains are blocked via `disposable-email-domains`.
-* **Data Integrity**: Powered by **Pydantic v2**, ensuring strict validation at the schema level.
-* **Asynchronous Architecture**: Fully non-blocking I/O operations for high concurrency.
-* **Secure Data Storage**: Professional standards using HttpOnly, Secure, and SameSite cookie attributes.
 
 ---
-*Note: Local deployment instructions and environment configurations are restricted for security reasons. For access or inquiries, please contact the repository owner.*
+
+## Author & Contact
+
+All architecture, backend, frontend, and DevOps work on this project was executed solely by [me](https://discord.com/users/874571768369664051). Real names are omitted for privacy reasons; feel free to reach out via Discord for official verification.
+
+*Local deployment instructions and environment configuration are withheld for security reasons — contact the repository owner for access or inquiries.*
