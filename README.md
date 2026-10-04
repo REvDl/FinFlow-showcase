@@ -55,11 +55,11 @@ Backend, database, and cache run as isolated services in Docker Compose, with no
 ## Key Features
 
 - **Authentication**: JWT-based system with access & refresh token rotation, Argon2 password hashing, rate limiting via SlowAPI.
-- **Two-step email verification**: registration requires a 6-digit code (valid 10 minutes), delivered via the Resend API. Disposable/temporary email domains are blocked at the schema level.
+- **Two-step email verification**: registration requires a 6-digit code (valid 10 minutes), delivered via the Resend API. Registration is protected by a domain allowlist (~60 verified email providers) to filter out temp/disposable emails.
 - **Multi-currency**: automatic exchange rate sync with Redis caching. Primary source is the National Bank of Ukraine (NBU); on failure, falls back to the Czech National Bank (CNB) via cross-rate calculation, with a persistent last-known-good cache as final safety net. Active source switchable on demand via Telegram. View balances in USD, EUR, UAH, PLN, or CZK.
 - **Accounts**: multi-account system (wallet, card, cash, savings).
   - Two default accounts created automatically on registration.
-  - Free tier: limited to 2 accounts; one can be deleted (data reassigned), the other protected — at least one active account is always enforced.
+  - Free tier: limited to 2 accounts. Deleting an account cascades to its associated transactions. At least one active account is always enforced.
   - Accounts can be renamed at any time; icon is set once at creation (icon changes post-creation not yet supported).
 - **Analytics**: balance/income/expense dashboards, average daily spending/income for a given period, real-time conversion based on live rates.
 - **Transactions**: cursor-based pagination for infinite scrolling, filtering by date range/category/type, smart date parsing (English/Russian input).
@@ -83,8 +83,6 @@ Every user starts with 2 default accounts; free-tier users can rename or delete 
 ![Accounts](assets/accounts.png)
 
 Available account icons at creation:
-
-
 
 ![Account Icons](assets/account_icons.png)
 
@@ -137,7 +135,7 @@ sequenceDiagram
     participant Email as Resend
 
     U->>API: POST /auth/register (username, email, password)
-    API->>API: validate password, check disposable domain
+    API->>API: validate password, check allowed domain list
     API->>Email: send 6-digit code
     API-->>U: pending verification
     U->>API: POST /auth/verify-email (code)
@@ -145,7 +143,7 @@ sequenceDiagram
     API-->>U: set HttpOnly access/refresh cookies
 ```
 
-1. **Sign up**: user submits username, email, password. Backend validates input (password 12–64 chars, no disposable domains) and sends a 6-digit code via Resend.
+1. **Sign up**: user submits username, email, password. Backend validates input (password 12–64 chars, email domain against allowlist) and sends a 6-digit code via Resend.
 2. **Email verification**: user enters the code. On success, the account is created (with 2 default accounts) and the user is signed in via HttpOnly cookie-based tokens.
 
 Password reset follows the same pattern: a time-limited reset link (valid 10 minutes) sent to the user's email, processed on a dedicated `/reset-password` page.
@@ -155,25 +153,55 @@ Password reset follows the same pattern: a time-limited reset link (valid 10 min
 ## Testing
 
 ```bash
-pytest --cov=app --cov=core --cov=services --cov-report=term-missing
+pytest --cov=app --cov=core --cov=services --cov=banks --cov=telegram --cov-report=term-missing
 ```
 
-Current backend coverage: **73%** overall, with the highest-risk paths (auth, security, token refresh) covered at 93–100%.
+Backend test suite achieves **99% line coverage** across application modules (excluding `tests/`), backed by mock providers, unit tests, and integration scenarios:
 
+```text
+Name                             Stmts   Miss  Cover   Missing
+--------------------------------------------------------------
+app\endpoints\account.py            38      0   100%
+app\endpoints\auth.py               71      0   100%
+app\endpoints\category.py           47      0   100%
+app\endpoints\data.py               38      0   100%
+app\endpoints\stats.py              16      0   100%
+app\endpoints\transaction.py        74      0   100%
+app\endpoints\user.py               26      0   100%
+app\main.py                         81      0   100%
+app\utils.py                        12      0   100%
+banks\base.py                       22      0   100%
+banks\cnb.py                        46      0   100%
+banks\nbu.py                        18      0   100%
+banks\registry.py                   94      0   100%
+config.py                           52      0   100%
+core\dependencies.py                38      3    92%   18-19, 56
+core\exceptions.py                  29      0   100%
+core\monitoring.py                   3      0   100%
+core\security.py                    49      1    98%   86
+database\base.py                     7      0   100%
+database\engine.py                   4      0   100%
+database\models.py                  80      1    99%   22
+limiter\limiter.py                   3      0   100%
+logger.py                            5      0   100%
+schemes\account.py                  15      0   100%
+schemes\category.py                 15      0   100%
+schemes\data.py                     20      0   100%
+schemes\stats.py                    20      0   100%
+schemes\transaction.py             115      5    96%   63-64, 73-75
+schemes\user.py                     43      0   100%
+services\accounts.py                49      0   100%
+services\auth.py                    99      0   100%
+services\categories.py              55      0   100%
+services\email_sender.py            17      0   100%
+services\refresh.py                 22      0   100%
+services\transaction.py            207      0   100%
+services\users.py                   53      0   100%
+telegram\bot.py                     28      0   100%
+telegram\commands.py                56      0   100%
+--------------------------------------------------------------
+TOTAL                             1667     10    99%
 ```
-Name                           Stmts   Miss  Cover
----------------------------------------------------
-core/security.py                  49      1    98%
-services/auth.py                  99      7    93%
-app/endpoints/user.py             26      1    96%
-core/exceptions.py                29      0   100%
-services/refresh.py               22      0   100%
-services/transaction.py          210     87    59%
----------------------------------------------------
-TOTAL                           1029    274    73%
-```
-
-Coverage is intentionally uneven right now: authentication, security, and token handling — the parts where a bug is most costly — are covered almost completely. Transaction and account business logic are covered less thoroughly and are the current focus for additional tests.
 
 ---
 
@@ -189,7 +217,7 @@ GitHub Actions runs on every push to `main` (or manually via `workflow_dispatch`
 ## Security
 
 - Rate limiting on sensitive endpoints (SlowAPI).
-- Mandatory email verification via one-time 6-digit code; disposable email domains blocked (`disposable-email-domains`).
+- Mandatory email verification via one-time 6-digit code; disposable email protection via strict domain allowlist.
 - Schema-level validation via Pydantic v2.
 - Fully async I/O for concurrency.
 - HttpOnly, Secure, SameSite cookie attributes for token storage.
