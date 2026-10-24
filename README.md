@@ -60,9 +60,11 @@ Backend, database, and cache run as isolated services in Docker Compose, with no
 - **Accounts**: multi-account system (wallet, card, cash, savings).
   - Two default accounts created automatically on registration.
   - Free tier: limited to 2 accounts. Deleting an account cascades to its associated transactions. At least one active account is always enforced.
-  - Accounts can be renamed at any time; icon is set once at creation (icon changes post-creation not yet supported).
-- **Analytics**: balance/income/expense dashboards, average daily spending/income for a given period, real-time conversion based on live rates.
+  - Account names and icons can be edited after creation.
+- **Analytics**: balance/income/expense dashboards, average daily spending/income for a given period, real-time conversion based on live rates. The all-time view uses the earliest and latest transaction dates and refreshes its range after transaction changes.
 - **Transactions**: cursor-based pagination for infinite scrolling, filtering by date range/category/type, smart date parsing (English/Russian input).
+- **Offline resilience**: previously loaded data is cached in IndexedDB, and new transactions are queued locally during network failures or server unavailability (HTTP 502/503/504). Automatic synchronization resumes on reconnect or server recovery, with manual sync, retry, and discard controls.
+- **Idempotent transaction creation**: an optional UUID `client_id` prevents duplicate transactions when requests are retried, with uniqueness enforced per user in PostgreSQL.
 - **Data portability**: JSON import/export of financial history, with backend payload size validation.
 - **UI**: responsive dashboard with native dark mode.
 - **Telegram admin control**: real-time notifications for auth activity, errors, and currency updates, plus a command interface for runtime admin actions.
@@ -79,10 +81,10 @@ Balance, income, and expenses converted into the user's preferred currency using
 ![Profile](assets/profile.jpg)
 
 ### Accounts
-Every user starts with 2 default accounts; free-tier users can rename or delete one (a single active account is always required).
+Every user starts with 2 default accounts; users can edit account names and icons, or delete an account (a single active account is always required).
 ![Accounts](assets/accounts.png)
 
-Available account icons at creation:
+Available account icons when creating or editing an account:
 
 ![Account Icons](assets/account_icons.png)
 
@@ -91,6 +93,13 @@ Available account icons at creation:
 
 ### Transaction Management
 ![Create Transaction](assets/create_transaction.jpg)
+
+### Offline Data & Synchronization
+Previously loaded query data is persisted in IndexedDB through TanStack Query, with a maximum restore age of 24 hours. A connection banner indicates when saved data is being shown and offers a retry button to refetch active queries.
+
+When transaction creation fails because of a network error or HTTP 502/503/504, the frontend saves the transaction in a separate IndexedDB outbox, retaining its UUID `client_id` and original timestamp. The queue is scoped to the signed-in user and survives page reloads. Synchronization runs when a user session becomes available, the browser comes back online, or the API reports server recovery; it can also be started manually.
+
+Queued transactions appear with pending, syncing, or failed status and an unsynced counter. Rejected entries display the server error and can be retried or discarded. The current balance excludes unsynced transactions; dashboard queries refresh after successful synchronization. Signing out clears both the persisted query cache and the outbox, including unsynced entries.
 
 ### Backend Logging
 Time-zone-aware logging covering JWT rotation, payload validation, async Redis caching, and Telegram bot notifications.
@@ -150,13 +159,25 @@ Password reset follows the same pattern: a time-limited reset link (valid 10 min
 
 ---
 
+## Transaction Idempotency
+
+`POST /transaction/` accepts an optional UUID `client_id`, also included in transaction responses. Repeating a request with the same `client_id` for the same user returns the existing transaction with its original ID (HTTP 201), rather than creating another record. A reused key returns the original transaction even if the new request contains different transaction details; use a new UUID for each new transaction.
+
+PostgreSQL enforces uniqueness on `(user_id, client_id)` through the `uq_transaction_user_client` constraint. The service also handles insertion conflicts from concurrent retries by fetching the existing transaction. Different users can use the same `client_id` independently. Requests with an omitted or null `client_id` create a new transaction each time.
+
+Alembic revisions `0b41de3fd1c7` and `8a25ee0be2f0` add the nullable UUID column and the unique constraint, respectively; both are required for database-backed deduplication.
+
+---
+
 ## Testing
 
 ```bash
 pytest --cov=app --cov=core --cov=services --cov=banks --cov=telegram --cov-report=term-missing
 ```
 
-Backend test suite achieves **99% line coverage** across application modules (excluding `tests/`), backed by mock providers, unit tests, and integration scenarios:
+The backend suite includes mock providers, unit tests, and integration scenarios. Transaction idempotency tests cover repeated requests, requests without a client ID, isolation between users, and a simulated insertion race.
+
+The following **99% line coverage** report is a historical snapshot, not a fresh measurement of the current revision:
 
 ```text
 Name                             Stmts   Miss  Cover   Missing
@@ -210,7 +231,7 @@ TOTAL                             1667     10    99%
 GitHub Actions runs on every push to `main` (or manually via `workflow_dispatch`), in two sequential jobs:
 
 1. **`test`** — spins up a clean `ubuntu-latest` runner: checks out the repo, reconstructs `.env` from a GitHub Secret (`ENV_FILE`), starts an isolated test database via `docker-compose.test.yml`, sets up Python 3.12, installs dependencies, and runs the full `pytest` suite. Deployment is blocked if any test fails.
-2. **`deploy`** (`needs: test`) — connects to the production VPS over SSH (`appleboy/ssh-action`) using secrets (`VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`), pulls the latest changes, rebuilds and restarts backend containers (`docker compose up -d --build`), and rebuilds the frontend bundle (`pnpm run build`).
+2. **`deploy`** (`needs: test`) — connects to the production VPS over SSH (`appleboy/ssh-action`) using secrets (`VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`), pulls changes explicitly from `origin main`, rebuilds and restarts backend containers (`docker compose up -d --build`), and includes frontend dependency installation with `pnpm install --frozen-lockfile` before `pnpm run build`.
 
 ---
 
