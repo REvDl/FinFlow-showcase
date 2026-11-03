@@ -65,7 +65,7 @@ Backend, database, and cache run as isolated services in Docker Compose, with no
 - **Transactions**: cursor-based pagination for infinite scrolling, filtering by date range/category/type, smart date parsing (English/Russian input).
 - **Offline resilience**: previously loaded data is cached in IndexedDB, and new transactions are queued locally during network failures or server unavailability (HTTP 502/503/504). Automatic synchronization resumes on reconnect or server recovery, with manual sync, retry, and discard controls.
 - **Idempotent transaction creation**: an optional UUID `client_id` prevents duplicate transactions when requests are retried, with uniqueness enforced per user in PostgreSQL.
-- **Data portability**: JSON import/export of financial history, with backend payload size validation.
+- **Data portability**: streaming JSON/CSV export and file import, with a format picker on desktop and mobile. Both formats preserve `client_id` for idempotent re-import; CSV supports automatic delimiter detection and reports invalid rows.
 - **UI**: responsive dashboard with native dark mode.
 - **Telegram admin control**: real-time notifications for auth activity, errors, and currency updates, plus a command interface for runtime admin actions.
 
@@ -169,59 +169,119 @@ Alembic revisions `0b41de3fd1c7` and `8a25ee0be2f0` add the nullable UUID column
 
 ---
 
+## Data Import & Export
+
+The dashboard's Import and Export actions open a choice of **JSON** or **CSV**, including on mobile. The existing endpoints support both formats through the `format` query parameter; JSON remains the default for existing clients.
+
+Paths below are backend routes. Through the production reverse proxy, prepend `/api` (for example, `/api/data/export?format=csv`).
+
+| Method | Path | Behavior |
+| --- | --- | --- |
+| `GET` | `/data/export?format=json` | Stream the user's transactions as a JSON array. |
+| `GET` | `/data/export?format=csv` | Stream UTF-8 CSV with a BOM and a header row; the default delimiter is `;`. |
+| `POST` | `/data/import?format=json` | Upload a JSON array as the multipart `file` field. |
+| `POST` | `/data/import?format=csv` | Upload a UTF-8 CSV file as the multipart `file` field; a BOM is optional. |
+
+CSV export also accepts `delimiter=;` or `delimiter=,`. Both exports include `id`, `client_id`, `name`, `description`, `price`, `category_name`, `account_name`, `created_at`, `currency`, and `transaction_type`, ordered by transaction timestamp and ID. JSON serializes prices as decimal strings, timestamps as ISO 8601 strings, and UUIDs as strings. CSV escapes cells that could be interpreted as spreadsheet formulas.
+
+### JSON and idempotent re-import
+
+```json
+[
+  {
+    "client_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "name": "Coffee",
+    "description": null,
+    "price": "150.50",
+    "category_name": "Food",
+    "account_name": "Cash",
+    "created_at": "2026-01-15T10:00:00",
+    "currency": "UAH",
+    "transaction_type": "spending"
+  }
+]
+```
+
+Imports preserve `client_id`. Batch inserts skip conflicts on `(user_id, client_id)`, so importing the same keyed transactions again saves no additional copies. Existing transactions are retained without updating their details. This behavior applies to both JSON and CSV and is scoped to each user.
+
+Deduplication requires a non-null `client_id`: legacy records or files without one create new transactions on each import. The exported database `id` is ignored during import and does not provide deduplication. Keep the original `client_id` when restoring or transferring an export; use a new UUID for a genuinely new transaction.
+
+Categories and accounts are matched by name and created when missing. An omitted `account_name` uses the user's default account; an omitted `created_at` uses the import time. JSON is validated as a complete array before insertion; malformed JSON or invalid transaction data rejects the import.
+
+### CSV input and import results
+
+CSV requires the headers `name`, `price`, `currency`, `category_name`, and `transaction_type`. Optional fields are `client_id`, `description`, `account_name`, and `created_at`; unknown columns, including the exported `id`, are ignored. Header names are trimmed and case-insensitive. Comma, semicolon, and tab delimiters are detected automatically, and decimal-comma prices are accepted.
+
+```csv
+client_id;name;price;currency;category_name;account_name;transaction_type
+3fa85f64-5717-4562-b3fc-2c963f66afa6;Coffee;150,50;UAH;Food;Cash;spending
+```
+
+CSV import can save valid rows while reporting invalid rows with their line numbers and field errors. Duplicate non-null `client_id` values within a CSV file are reported as row errors. Missing required headers, duplicate headers, invalid UTF-8, more than 50,000 data rows, or reaching 100 row errors rejects the import. Uploads also undergo backend file-size validation.
+
+Successful imports return HTTP 201 with `message`, `saved`, `failed`, and `errors`. `saved` counts newly inserted transactions; conflicts with existing client IDs are skipped and do not increase `failed`.
+
+---
+
 ## Testing
 
 ```bash
-pytest --cov=app --cov=core --cov=services --cov=banks --cov=telegram --cov-report=term-missing
+pytest -o addopts= --cov=app --cov=core --cov=dao --cov=services --cov=banks --cov=telegram --cov=database --cov=schemes --cov=limiter --cov=config --cov=logger --cov-report=term-missing
 ```
 
 The backend suite includes mock providers, unit tests, and integration scenarios. Transaction idempotency tests cover repeated requests, requests without a client ID, isolation between users, and a simulated insertion race.
 
-The following **99% line coverage** report is a historical snapshot, not a fresh measurement of the current revision:
+The following **99% line coverage** report uses `Stmts` to counts executable statements considered by coverage, rather than all physical lines in the repository.
 
 ```text
-Name                             Stmts   Miss  Cover   Missing
---------------------------------------------------------------
-app\endpoints\account.py            38      0   100%
-app\endpoints\auth.py               71      0   100%
-app\endpoints\category.py           47      0   100%
-app\endpoints\data.py               38      0   100%
-app\endpoints\stats.py              16      0   100%
-app\endpoints\transaction.py        74      0   100%
-app\endpoints\user.py               26      0   100%
-app\main.py                         81      0   100%
-app\utils.py                        12      0   100%
-banks\base.py                       22      0   100%
-banks\cnb.py                        46      0   100%
-banks\nbu.py                        18      0   100%
-banks\registry.py                   94      0   100%
-config.py                           52      0   100%
-core\dependencies.py                38      3    92%   18-19, 56
-core\exceptions.py                  29      0   100%
-core\monitoring.py                   3      0   100%
-core\security.py                    49      1    98%   86
-database\base.py                     7      0   100%
-database\engine.py                   4      0   100%
-database\models.py                  80      1    99%   22
-limiter\limiter.py                   3      0   100%
-logger.py                            5      0   100%
-schemes\account.py                  15      0   100%
-schemes\category.py                 15      0   100%
-schemes\data.py                     20      0   100%
-schemes\stats.py                    20      0   100%
-schemes\transaction.py             115      5    96%   63-64, 73-75
-schemes\user.py                     43      0   100%
-services\accounts.py                49      0   100%
-services\auth.py                    99      0   100%
-services\categories.py              55      0   100%
-services\email_sender.py            17      0   100%
-services\refresh.py                 22      0   100%
-services\transaction.py            207      0   100%
-services\users.py                   53      0   100%
-telegram\bot.py                     28      0   100%
-telegram\commands.py                56      0   100%
---------------------------------------------------------------
-TOTAL                             1667     10    99%
+Name                                  Stmts   Miss  Cover   Missing
+-------------------------------------------------------------------
+app\endpoints\account.py                 38      0   100%
+app\endpoints\auth.py                    71      0   100%
+app\endpoints\category.py                47      0   100%
+app\endpoints\data.py                    53      0   100%
+app\endpoints\stats.py                   16      0   100%
+app\endpoints\transaction.py             74      0   100%
+app\endpoints\user.py                    26      0   100%
+app\main.py                              81      0   100%
+app\utils.py                             12      0   100%
+banks\base.py                            22      0   100%
+banks\cnb.py                             46      0   100%
+banks\nbu.py                             18      0   100%
+banks\registry.py                        94      0   100%
+config.py                                52      0   100%
+core\dependencies.py                     41      4    90%   18-19, 47, 60
+core\exceptions.py                       29      0   100%
+core\monitoring.py                        3      0   100%
+core\security.py                         49      1    98%   86
+dao\accounts.py                          53      0   100%
+dao\base.py                              14      0   100%
+dao\categories.py                        59      0   100%
+dao\refresh.py                           22      0   100%
+dao\transactions.py                     208      1    99%   442
+dao\users.py                             53      0   100%
+database\base.py                          7      0   100%
+database\engine.py                        4      0   100%
+database\models.py                       83      1    99%   23
+limiter\limiter.py                        3      0   100%
+logger.py                                 5      0   100%
+schemes\account.py                       15      0   100%
+schemes\category.py                      15      0   100%
+schemes\data.py                          37      0   100%
+schemes\stats.py                         20      0   100%
+schemes\transaction.py                  118      5    96%   64-65, 74-76
+schemes\user.py                          43      0   100%
+services\auth.py                         99      0   100%
+services\email_sender.py                 17      0   100%
+services\exchange\common.py              13      0   100%
+services\exchange\csv_export.py          19      0   100%
+services\exchange\csv_import.py          55      3    95%   18, 53, 68
+services\exchange\import_service.py      25      1    96%   20
+services\exchange\json_export.py         27      3    89%   21-23
+telegram\bot.py                          28      0   100%
+telegram\commands.py                     56      0   100%
+-------------------------------------------------------------------
+TOTAL                                  1870     19    99%
 ```
 
 ---
@@ -249,10 +309,12 @@ GitHub Actions runs on every push to `main` (or manually via `workflow_dispatch`
 
 ```text
 ├── .github/                    # GitHub Actions workflows (CI/CD)
-├── app/                        # FastAPI application (endpoints & main)
+├── app/                        # FastAPI application (main.py, utils.py, endpoints/)
+│   └── endpoints/data.py       # JSON/CSV import and export routes
 ├── assets/                     # Documentation images and screenshots
 ├── banks/                      # Exchange-rate providers (NBU, CNB), shared caching, fallback logic
 ├── core/                       # Security, JWT, dependencies, exceptions
+├── dao/                        # Database access (accounts, categories, transactions, users, refresh tokens)
 ├── database/                   # SQLAlchemy models and engine setup
 ├── frontend/                   # React/TypeScript source
 ├── grafana/                    # Grafana provisioning (dashboards, datasources)
@@ -260,7 +322,15 @@ GitHub Actions runs on every push to `main` (or manually via `workflow_dispatch`
 ├── migrations/                 # Alembic migration history
 ├── prometheus/                 # Prometheus scrape configs and alert rules
 ├── schemes/                    # Pydantic models for validation
-├── services/                   # Data access and business logic
+├── services/                   # Authentication, email delivery, and file exchange
+│   ├── auth.py
+│   ├── email_sender.py
+│   └── exchange/
+│       ├── common.py           # Shared columns, limits, and CSV cell sanitization
+│       ├── import_service.py   # Resolve categories/accounts and batch-insert transactions
+│       ├── json_export.py      # Streaming JSON export
+│       ├── csv_export.py       # Streaming CSV export
+│       └── csv_import.py       # CSV parsing and row-level validation
 ├── telegram/                   # Async notifications/logs + long-polling admin command handler
 ├── tests/                      # Integration and unit test suites
 ├── docker-compose.yml          # Production orchestration
