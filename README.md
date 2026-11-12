@@ -8,7 +8,37 @@ Full-stack personal finance tracker: incomes/expenses, flexible accounts and cat
 
 **[https://finflow.website](https://finflow.website)**
 
-In production since staging completed in 2026. Health and activity are monitored continuously through a Telegram bot integration: the backend pushes event-driven alerts on errors, auth activity, and currency-source switches — not a periodic ping, but a message the moment something happens. An authorized admin can also switch the active exchange-rate source at runtime via Telegram commands, without a redeploy.
+In production since 2026. Health and activity are monitored continuously through a Telegram bot integration: the backend pushes event-driven alerts on errors, auth activity, and currency-source switches — not a periodic ping, but a message the moment something happens. An authorized admin can also switch the active exchange-rate source at runtime via Telegram commands, without a redeploy.
+
+---
+
+## Table of Contents
+
+- [Recognition](#recognition)
+- [Architecture](#architecture)
+- [Deployment & Infrastructure](#deployment--infrastructure)
+- [Key Features](#key-features)
+- [UI & Application Flow](#ui--application-flow)
+  - [Main Dashboard](#main-dashboard)
+  - [Profile](#profile)
+  - [Accounts](#accounts)
+  - [Analytics & Visualizations](#analytics--visualizations)
+  - [Transaction Management](#transaction-management)
+  - [Scan Transactions](#scan-transactions)
+  - [Offline Data & Synchronization](#offline-data--synchronization)
+  - [Backend Logging](#backend-logging)
+- [Tech Stack](#tech-stack)
+- [Authentication Flow](#authentication-flow)
+- [Transaction Idempotency](#transaction-idempotency)
+- [Data Import & Export](#data-import--export)
+  - [JSON and idempotent re-import](#json-and-idempotent-re-import)
+  - [CSV input and import results](#csv-input-and-import-results)
+- [Transaction Scanning API](#transaction-scanning-api)
+- [Testing](#testing)
+- [CI/CD](#cicd)
+- [Security](#security)
+- [Project Structure](#project-structure)
+- [Author & Contact](#author--contact)
 
 ---
 
@@ -72,6 +102,8 @@ Backend, database, and cache run as isolated services in Docker Compose, with no
 - **UI**: responsive dashboard with native dark mode.
 - **Telegram admin control**: real-time notifications for auth activity, errors, and currency updates, plus a command interface for runtime admin actions.
 
+<p align="right"><sub><a href="#table-of-contents">↑ Back to top</a></sub></p>
+
 ---
 
 ## UI & Application Flow
@@ -119,6 +151,8 @@ Time-zone-aware logging covering JWT rotation, payload validation, async Redis c
 
 *Note: all tokens, usernames, endpoints, and credentials shown above are mock data for demonstration only.*
 
+<p align="right"><sub><a href="#table-of-contents">↑ Back to top</a></sub></p>
+
 ---
 
 ## Tech Stack
@@ -131,6 +165,9 @@ Time-zone-aware logging covering JWT rotation, payload validation, async Redis c
 ![](https://img.shields.io/badge/Redis-Caching-DC382D?style=flat-square&logo=redis&logoColor=white)
 ![](https://img.shields.io/badge/SQLAlchemy-ORM-D71F00?style=flat-square&logo=sqlalchemy&logoColor=white)
 ![](https://img.shields.io/badge/Docker-Container-2496ED?style=flat-square&logo=docker&logoColor=white)
+![](https://img.shields.io/badge/Pydantic-v2-E92063?style=flat-square&logo=pydantic&logoColor=white)
+![](https://img.shields.io/badge/Alembic-Migrations-6BA81E?style=flat-square)
+![](https://img.shields.io/badge/Google_Gemini-Image_Scanning-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)
 
 **Frontend**
 
@@ -139,6 +176,12 @@ Time-zone-aware logging covering JWT rotation, payload validation, async Redis c
 ![](https://img.shields.io/badge/Vite-Tooling-646CFF?style=flat-square&logo=vite&logoColor=white)
 ![](https://img.shields.io/badge/Tailwind-Styling-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
 ![](https://img.shields.io/badge/TanStack_Query-State-FF4154?style=flat-square&logo=react-query&logoColor=white)
+
+**Infrastructure**
+
+![](https://img.shields.io/badge/Nginx-Reverse_Proxy-009639?style=flat-square&logo=nginx&logoColor=white)
+![](https://img.shields.io/badge/GitHub_Actions-CI%2FCD-2088FF?style=flat-square&logo=githubactions&logoColor=white)
+![](https://img.shields.io/badge/Telegram-Admin_Bot-26A5E4?style=flat-square&logo=telegram&logoColor=white)
 
 **Monitoring**
 
@@ -235,6 +278,10 @@ CSV import can save valid rows while reporting invalid rows with their line numb
 
 Successful imports return HTTP 201 with `message`, `saved`, `failed`, and `errors`. `saved` counts newly inserted transactions; conflicts with existing client IDs are skipped and do not increase `failed`.
 
+<p align="right"><sub><a href="#table-of-contents">↑ Back to top</a></sub></p>
+
+---
+
 ## Transaction Scanning API
 
 These are authenticated backend routes; prepend `/api` through the frontend proxy.
@@ -253,6 +300,8 @@ Gemini model candidates are configured in `services/scan/gemini_client.py`. Requ
 Missing personal keys return HTTP 402; invalid Gemini keys return HTTP 400, independently of FinFlow authentication. Rate limiting returns HTTP 429; unavailable models and timeouts are surfaced as service errors. Import is never retried automatically after a network error or partial result.
 
 Personal keys are encrypted with Fernet using backend `ENCRYPTION_KEY`; subscribers use backend `GEMINI_API_KEY`. The `00cefedfdf9d` Alembic revision adds user settings storage. The frontend only holds an entered key in temporary component state and clears it after a successful save.
+
+<p align="right"><sub><a href="#table-of-contents">↑ Back to top</a></sub></p>
 
 ---
 
@@ -276,7 +325,10 @@ pnpm run build
 
 Frontend tests use Node's built-in runner and the existing TypeScript compiler. They cover draft validation, selected-row JSON generation, category recalculation, decimal-safe totals, image validation, and API error messages. Backend mocks exercise Gemini responses, model selection, key handling, scan endpoints, and bank rates. Camera behavior, keyboard/focus interaction, and draft recovery after import failures still need browser testing. No frontend lint script is configured.
 
-The following **98% line coverage** report uses `Stmts` to counts executable statements considered by coverage, rather than all physical lines in the repository.
+The following **98% line coverage** report uses `Stmts` to count executable statements considered by coverage, rather than all physical lines in the repository.
+
+<details>
+<summary>Full coverage report</summary>
 
 ```text
 Name                                  Stmts   Miss  Cover   Missing
@@ -339,6 +391,10 @@ telegram\commands.py                     56      0   100%
 TOTAL                                  2169     37    98%
 ```
 
+</details>
+
+<p align="right"><sub><a href="#table-of-contents">↑ Back to top</a></sub></p>
+
 ---
 
 ## CI/CD
@@ -363,6 +419,9 @@ GitHub Actions runs on every push to `main` (or manually via `workflow_dispatch`
 ---
 
 ## Project Structure
+
+<details>
+<summary>Show project tree</summary>
 
 ```text
 ├── .github/                    # GitHub Actions workflows (CI/CD)
@@ -404,6 +463,8 @@ GitHub Actions runs on every push to `main` (or manually via `workflow_dispatch`
 ├── pytest.ini
 └── requirements.txt
 ```
+
+</details>
 
 ---
 
