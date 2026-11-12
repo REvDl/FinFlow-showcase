@@ -28,6 +28,7 @@ graph TB
     FastAPI --> PG[(PostgreSQL)]
     FastAPI --> Redis[(Redis cache)]
     FastAPI --> Rates[NBU / CNB<br/>exchange rate providers]
+    FastAPI --> Gemini[Google Gemini<br/>transaction image extraction]
     FastAPI --> Resend[Resend<br/>email verification]
     FastAPI <-->|admin commands,<br/>alerts| TGBot[Telegram Bot]
     Prometheus -->|scrape| FastAPI
@@ -56,7 +57,7 @@ Backend, database, and cache run as isolated services in Docker Compose, with no
 
 - **Authentication**: JWT-based system with access & refresh token rotation, Argon2 password hashing, rate limiting via SlowAPI.
 - **Two-step email verification**: registration requires a 6-digit code (valid 10 minutes), delivered via the Resend API. Registration is protected by a domain allowlist (~60 verified email providers) to filter out temp/disposable emails.
-- **Multi-currency**: automatic exchange rate sync with Redis caching. Primary source is the National Bank of Ukraine (NBU); on failure, falls back to the Czech National Bank (CNB) via cross-rate calculation, with a persistent last-known-good cache as final safety net. Active source switchable on demand via Telegram. View balances in USD, EUR, UAH, PLN, or CZK.
+- **Multi-currency**: automatic exchange rate sync with Redis caching. Primary source is the National Bank of Ukraine (NBU); on failure, falls back to the Czech National Bank (CNB) via cross-rate calculation, with a persistent last-known-good cache as final safety net. Active source switchable on demand via Telegram. View balances in USD, EUR, UAH, PLN, CZK, or RUB. RUB uses a manually maintained fixed backend rate, rather than a live bank feed.
 - **Accounts**: multi-account system (wallet, card, cash, savings).
   - Two default accounts created automatically on registration.
   - Free tier: limited to 2 accounts. Deleting an account cascades to its associated transactions. At least one active account is always enforced.
@@ -66,6 +67,8 @@ Backend, database, and cache run as isolated services in Docker Compose, with no
 - **Offline resilience**: previously loaded data is cached in IndexedDB, and new transactions are queued locally during network failures or server unavailability (HTTP 502/503/504). Automatic synchronization resumes on reconnect or server recovery, with manual sync, retry, and discard controls.
 - **Idempotent transaction creation**: an optional UUID `client_id` prevents duplicate transactions when requests are retried, with uniqueness enforced per user in PostgreSQL.
 - **Data portability**: streaming JSON/CSV export and file import, with a format picker on desktop and mobile. Both formats preserve `client_id` for idempotent re-import; CSV supports automatic delimiter detection and reports invalid rows.
+- **Transaction image scanning**: upload receipts, bank statements, transaction histories, or payment screenshots for Gemini extraction. Review, edit, and select draft transactions before explicitly confirming import; scanning itself never saves transactions.
+- **Gemini key management**: free users can add, replace, or delete a personal API key in their profile or configure one inline when scanning requires it. Subscribers use the server-provided key. Personal keys are encrypted at rest and never returned by the API.
 - **UI**: responsive dashboard with native dark mode.
 - **Telegram admin control**: real-time notifications for auth activity, errors, and currency updates, plus a command interface for runtime admin actions.
 
@@ -93,6 +96,15 @@ Available account icons when creating or editing an account:
 
 ### Transaction Management
 ![Create Transaction](assets/create_transaction.jpg)
+
+### Scan Transactions
+Choose **Scan transactions** under **New Entry**. The compact upload area supports desktop drag-and-drop and file selection; at mobile widths it also offers a separate rear-camera input. Accepted images are JPEG, PNG, and WebP, up to 10 MiB in the current configuration. A selected image is previewed with its filename; upload starts only after choosing **Start scanning**.
+
+The review step supports independent editing of names, descriptions, amounts, dates, transaction types, categories, accounts, and currencies. Uncheck rows to exclude them without deleting them from the draft. New-category indicators and the category-creation summary follow the current edits and selection. Selected totals use decimal-safe arithmetic, grouped by currency and income/spending. Leaving the account unset uses the default account.
+
+Only **Confirm and import** persists the selected transactions through JSON import. Errors preserve edits and selection; partial or unknown import outcomes require manual inspection of saved transactions before retrying. Scanned items may have null `client_id`, so scanning or importing the same image again can create duplicates. Scan cancellation retains the image for manual retry; closing the dialog discards its in-memory draft.
+
+**Privacy:** the image is sent to Google for processing. On the free Gemini tier, Google may use submitted data to improve its models. Uploaded images and entered API keys are not persisted by the frontend; preview object URLs are revoked when replaced or unmounted.
 
 ### Offline Data & Synchronization
 Previously loaded query data is persisted in IndexedDB through TanStack Query, with a maximum restore age of 24 hours. A connection banner indicates when saved data is being shown and offers a retry button to refetch active queries.
@@ -208,6 +220,8 @@ Deduplication requires a non-null `client_id`: legacy records or files without o
 
 Categories and accounts are matched by name and created when missing. An omitted `account_name` uses the user's default account; an omitted `created_at` uses the import time. JSON is validated as a complete array before insertion; malformed JSON or invalid transaction data rejects the import.
 
+Existing category/account names are resolved case-insensitively. Creating missing categories or accounts during import respects the user's subscription limits; a limit failure rejects the import instead of bypassing those limits.
+
 ### CSV input and import results
 
 CSV requires the headers `name`, `price`, `currency`, `category_name`, and `transaction_type`. Optional fields are `client_id`, `description`, `account_name`, and `created_at`; unknown columns, including the exported `id`, are ignored. Header names are trimmed and case-insensitive. Comma, semicolon, and tab delimiters are detected automatically, and decimal-comma prices are accepted.
@@ -221,6 +235,25 @@ CSV import can save valid rows while reporting invalid rows with their line numb
 
 Successful imports return HTTP 201 with `message`, `saved`, `failed`, and `errors`. `saved` counts newly inserted transactions; conflicts with existing client IDs are skipped and do not increase `failed`.
 
+## Transaction Scanning API
+
+These are authenticated backend routes; prepend `/api` through the frontend proxy.
+
+| Method | Path | Behavior |
+| --- | --- | --- |
+| `POST` | `/scan/` | Upload an image in the multipart `file` field; return an unsaved transaction draft. Limited to 5 requests/minute. |
+| `GET` | `/users/me/gemini-key` | Return only `has_gemini_key`; never the stored key. |
+| `PUT` | `/users/me/gemini-key` | Save or replace a personal key using `{ "key": "..." }` (20–200 characters after trimming). Return HTTP 204; limited to 5 requests/minute. |
+| `DELETE` | `/users/me/gemini-key` | Delete the personal key; return HTTP 204. |
+
+The scan draft contains `has_transactions`, an optional `reason`, `items` containing `TransactionData` and `is_new_category`, proposed `new_categories`, and a `skipped` count. No recognizable transactions produces an empty draft with an explanation. The frontend recalculates proposed new categories from the selected edited items before importing through `/data/import?format=json`.
+
+Gemini model candidates are configured in `services/scan/gemini_client.py`. Requests advance to the next candidate for the specific 404 message indicating a model is no longer available to new users, or for HTTP 500/502/503/504. Invalid keys and rate limits stop immediately; arbitrary 404 responses and timeouts do not trigger model fallback. Each Gemini request has a 30-second timeout; the frontend cancels its scan request after 40 seconds, so a fallback sequence may outlast that client deadline.
+
+Missing personal keys return HTTP 402; invalid Gemini keys return HTTP 400, independently of FinFlow authentication. Rate limiting returns HTTP 429; unavailable models and timeouts are surfaced as service errors. Import is never retried automatically after a network error or partial result.
+
+Personal keys are encrypted with Fernet using backend `ENCRYPTION_KEY`; subscribers use backend `GEMINI_API_KEY`. The `00cefedfdf9d` Alembic revision adds user settings storage. The frontend only holds an entered key in temporary component state and clears it after a successful save.
+
 ---
 
 ## Testing
@@ -231,7 +264,19 @@ pytest -o addopts= --cov=app --cov=core --cov=dao --cov=services --cov=banks --c
 
 The backend suite includes mock providers, unit tests, and integration scenarios. Transaction idempotency tests cover repeated requests, requests without a client ID, isolation between users, and a simulated insertion race.
 
-The following **99% line coverage** report uses `Stmts` to counts executable statements considered by coverage, rather than all physical lines in the repository.
+Focused checks for the scanning and currency code:
+
+```bash
+pytest -o addopts= tests/mock/test_gemini_client_mock.py tests/mock/test_scan_mock.py tests/mock/test_scan_endpoints_mock.py tests/mock/test_gemini_settings_mock.py tests/unit/test_scan_process.py tests/mock/test_banks_mock.py
+cd frontend
+node --test tests/scan.test.mjs
+pnpm exec tsc --noEmit
+pnpm run build
+```
+
+Frontend tests use Node's built-in runner and the existing TypeScript compiler. They cover draft validation, selected-row JSON generation, category recalculation, decimal-safe totals, image validation, and API error messages. Backend mocks exercise Gemini responses, model selection, key handling, scan endpoints, and bank rates. Camera behavior, keyboard/focus interaction, and draft recovery after import failures still need browser testing. No frontend lint script is configured.
+
+The following **98% line coverage** report uses `Stmts` to counts executable statements considered by coverage, rather than all physical lines in the repository.
 
 ```text
 Name                                  Stmts   Miss  Cover   Missing
@@ -240,48 +285,58 @@ app\endpoints\account.py                 38      0   100%
 app\endpoints\auth.py                    71      0   100%
 app\endpoints\category.py                47      0   100%
 app\endpoints\data.py                    53      0   100%
+app\endpoints\scan.py                    21      0   100%
 app\endpoints\stats.py                   16      0   100%
 app\endpoints\transaction.py             74      0   100%
 app\endpoints\user.py                    26      0   100%
-app\main.py                              81      0   100%
+app\endpoints\user_settings.py           20      4    80%   29-30, 37-38
+app\main.py                              85      0   100%
 app\utils.py                             12      0   100%
 banks\base.py                            22      0   100%
 banks\cnb.py                             46      0   100%
 banks\nbu.py                             18      0   100%
-banks\registry.py                        94      0   100%
-config.py                                52      0   100%
+banks\registry.py                        97      0   100%
+config.py                                54      0   100%
 core\dependencies.py                     41      4    90%   18-19, 47, 60
-core\exceptions.py                       29      0   100%
+core\exceptions.py                       38      0   100%
 core\monitoring.py                        3      0   100%
 core\security.py                         49      1    98%   86
-dao\accounts.py                          53      0   100%
+dao\accounts.py                          57      0   100%
 dao\base.py                              14      0   100%
-dao\categories.py                        59      0   100%
+dao\categories.py                        63      0   100%
 dao\refresh.py                           22      0   100%
 dao\transactions.py                     208      1    99%   442
+dao\user_settings.py                     23      9    61%   10-20, 24, 31-40, 44-50
 dao\users.py                             53      0   100%
 database\base.py                          7      0   100%
 database\engine.py                        4      0   100%
-database\models.py                       83      1    99%   23
+database\models.py                       91      1    99%   23
 limiter\limiter.py                        3      0   100%
 logger.py                                 5      0   100%
 schemes\account.py                       15      0   100%
 schemes\category.py                      15      0   100%
 schemes\data.py                          37      0   100%
+schemes\scan.py                          25      0   100%
+schemes\settings.py                      12      0   100%
 schemes\stats.py                         20      0   100%
 schemes\transaction.py                  118      5    96%   64-65, 74-76
 schemes\user.py                          43      0   100%
 services\auth.py                         99      0   100%
+services\crypto.py                       13      0   100%
 services\email_sender.py                 17      0   100%
 services\exchange\common.py              13      0   100%
 services\exchange\csv_export.py          19      0   100%
 services\exchange\csv_import.py          55      3    95%   18, 53, 68
-services\exchange\import_service.py      25      1    96%   20
+services\exchange\import_service.py      48      1    98%   21
 services\exchange\json_export.py         27      3    89%   21-23
+services\scan\gemini_client.py           43      0   100%
+services\scan\prompt.py                   7      0   100%
+services\scan\scan_service.py            50      0   100%
+services\user_settings.py                28      5    82%   12-13, 17, 21-22
 telegram\bot.py                          28      0   100%
 telegram\commands.py                     56      0   100%
 -------------------------------------------------------------------
-TOTAL                                  1870     19    99%
+TOTAL                                  2169     37    98%
 ```
 
 ---
@@ -302,6 +357,8 @@ GitHub Actions runs on every push to `main` (or manually via `workflow_dispatch`
 - Schema-level validation via Pydantic v2.
 - Fully async I/O for concurrency.
 - HttpOnly, Secure, SameSite cookie attributes for token storage.
+- Personal Gemini API keys encrypted at rest with Fernet; API responses expose configuration status only.
+- Image scanning requires explicit upload and a separate import confirmation after review.
 
 ---
 
@@ -310,7 +367,9 @@ GitHub Actions runs on every push to `main` (or manually via `workflow_dispatch`
 ```text
 ├── .github/                    # GitHub Actions workflows (CI/CD)
 ├── app/                        # FastAPI application (main.py, utils.py, endpoints/)
-│   └── endpoints/data.py       # JSON/CSV import and export routes
+│   ├── endpoints/data.py        # JSON/CSV import and export routes
+│   ├── endpoints/scan.py        # Transaction image scanning
+│   └── endpoints/user_settings.py # Gemini API key management
 ├── assets/                     # Documentation images and screenshots
 ├── banks/                      # Exchange-rate providers (NBU, CNB), shared caching, fallback logic
 ├── core/                       # Security, JWT, dependencies, exceptions
@@ -322,9 +381,12 @@ GitHub Actions runs on every push to `main` (or manually via `workflow_dispatch`
 ├── migrations/                 # Alembic migration history
 ├── prometheus/                 # Prometheus scrape configs and alert rules
 ├── schemes/                    # Pydantic models for validation
-├── services/                   # Authentication, email delivery, and file exchange
+├── services/                   # Authentication, email delivery, file exchange, and image scanning
 │   ├── auth.py
 │   ├── email_sender.py
+│   ├── crypto.py               # Fernet encryption for stored secrets
+│   ├── user_settings.py        # Personal/server Gemini key resolution
+│   ├── scan/                   # Gemini client, extraction prompt, and draft processing
 │   └── exchange/
 │       ├── common.py           # Shared columns, limits, and CSV cell sanitization
 │       ├── import_service.py   # Resolve categories/accounts and batch-insert transactions
